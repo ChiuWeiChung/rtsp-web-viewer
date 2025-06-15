@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RTSP to MJPEG Viewer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      color: #333;
+      text-align: center;
+    }
+    .stream-container {
+      margin-top: 20px;
+      text-align: center;
+      position: relative;
+    }
+    img {
+      max-width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 8px;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    .error-message {
+      color: #d9534f;
+      padding: 10px;
+      margin-top: 10px;
+      border: 1px solid #d9534f;
+      border-radius: 4px;
+      background-color: #f9f2f4;
+      display: none;
+    }
+    .loading {
+      display: none;
+      margin: 20px auto;
+      text-align: center;
+    }
+    .loading:after {
+      content: '';
+      display: inline-block;
+      width: 40px;
+      height: 40px;
+      border: 6px solid #f3f3f3;
+      border-top: 6px solid #3498db;
+      border-radius: 50%;
+      animation: spin 2s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .retry-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      display: none;
+      border-radius: 4px;
+    }
+    .retry-overlay button {
+      margin-top: 15px;
+      background-color: #3498db;
+    }
+    .retry-overlay p {
+      color: white;
+      font-size: 18px;
+      margin-bottom: 20px;
+    }
+    .status-bar {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      background-color: #f8f9fa;
+      font-size: 14px;
+      text-align: center;
+      color: #666;
+    }
+    .status-connected {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .status-disconnected {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .info-box {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #e8f4fd;
+      border-left: 4px solid #3498db;
+      border-radius: 4px;
+    }
+    .info-box h3 {
+      margin-top: 0;
+      color: #2980b9;
+    }
+    .info-box ul {
+      padding-left: 20px;
+    }
+    .toggle-info {
+      color: #3498db;
+      text-decoration: underline;
+      cursor: pointer;
+      display: block;
+      margin-top: 10px;
+      text-align: center;
+    }
+    .advanced-settings {
+      margin-top: 15px;
+      display: none;
+    }
+    .checkbox-group {
+      margin-bottom: 10px;
+    }
+    .checkbox-group label {
+      font-weight: normal;
+      display: inline;
+      margin-left: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>RTSP to MJPEG Viewer</h1>
+    
+    <div class="form-group">
+      <label for="rtspUrl">RTSP URL:</label>
+      <input type="text" id="rtspUrl" placeholder="rtsp://example.com/stream" value="">
+      <p>輸入完整的 RTSP 網址，例如：rtsp://192.168.0.147:8554/live</p>
+    </div>
+    
+    <div class="form-group advanced-settings" id="advancedSettings">
+      <div class="checkbox-group">
+        <input type="checkbox" id="useUdp" name="useUdp">
+        <label for="useUdp">使用 UDP 協議 (預設為 TCP)</label>
+      </div>
+      <div class="checkbox-group">
+        <input type="checkbox" id="forceDecode" name="forceDecode">
+        <label for="forceDecode">強制解碼 (用於某些不兼容的攝像機)</label>
+      </div>
+    </div>
+    
+    <div class="form-group">
+      <button id="startBtn">開始串流</button>
+      <button id="stopBtn" style="background-color: #d9534f; display: none;">停止串流</button>
+      <button id="testConnectionBtn" style="background-color: #f0ad4e;">測試連接</button>
+      <span class="toggle-info" id="toggleAdvanced">顯示進階選項</span>
+    </div>
+    
+    <div id="connectionStatus" class="status-bar">未連接</div>
+    <div id="errorMessage" class="error-message"></div>
+    <div id="loading" class="loading"></div>
+    
+    <div class="stream-container">
+      <img id="streamImg" src="" alt="MJPEG 串流將在這裡顯示" style="display: none;">
+      <div id="retryOverlay" class="retry-overlay">
+        <p>串流連接已斷開</p>
+        <button id="retryBtn">重試連接</button>
+      </div>
+    </div>
+    
+    <div class="info-box" id="infoBox">
+      <h3>無法連接？嘗試以下方法：</h3>
+      <ul>
+        <li>確認 IP 攝影機已開啟並連接到網路</li>
+        <li>檢查 RTSP URL 格式是否正確 (應以 rtsp:// 開頭)</li>
+        <li>嘗試切換 TCP/UDP 傳輸協議 (顯示進階選項)</li>
+        <li>確認攝影機支持 RTSP 協議</li>
+        <li>檢查攝影機的用戶認證設定 - 有些攝影機需要在 URL 中包含用戶名和密碼：
+            <code>rtsp://用戶名:密碼@192.168.0.147:8554/live</code></li>
+        <li>檢查您的防火牆設定是否允許 RTSP 流量 (通常端口 554)</li>
+        <li>如果使用的是公共 IP，確保正確設定了端口轉發</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const streamImg = document.getElementById('streamImg');
+      const rtspUrlInput = document.getElementById('rtspUrl');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const testConnectionBtn = document.getElementById('testConnectionBtn');
+      const errorMessage = document.getElementById('errorMessage');
+      const loading = document.getElementById('loading');
+      const retryOverlay = document.getElementById('retryOverlay');
+      const retryBtn = document.getElementById('retryBtn');
+      const connectionStatus = document.getElementById('connectionStatus');
+      const toggleAdvanced = document.getElementById('toggleAdvanced');
+      const advancedSettings = document.getElementById('advancedSettings');
+      const useUdp = document.getElementById('useUdp');
+      const forceDecode = document.getElementById('forceDecode');
+      
+      let loadingTimeout = null;
+      let currentRtspUrl = '';
+      let retryCount = 0;
+      const MAX_RETRIES = 3;
+      
+      // Toggle advanced settings
+      toggleAdvanced.addEventListener('click', function() {
+        if (advancedSettings.style.display === 'block') {
+          advancedSettings.style.display = 'none';
+          toggleAdvanced.textContent = '顯示進階選項';
+        } else {
+          advancedSettings.style.display = 'block';
+          toggleAdvanced.textContent = '隱藏進階選項';
+        }
+      });
+      
+      // Test RTSP connection
+      testConnectionBtn.addEventListener('click', function() {
+        const rtspUrl = rtspUrlInput.value.trim();
+        if (!rtspUrl) {
+          showError('請輸入 RTSP URL');
+          return;
+        }
+        
+        testConnection(rtspUrl);
+      });
+      
+      // Function to test connection
+      function testConnection(rtspUrl) {
+        // Show loading and update status
+        loading.style.display = 'block';
+        errorMessage.style.display = 'none';
+        connectionStatus.textContent = '測試連接中...';
+        connectionStatus.className = 'status-bar';
+        
+        // Create a test image with a timestamp to prevent caching
+        const testImg = new Image();
+        let testTimeout = setTimeout(() => {
+          testImg.src = ''; // Cancel the request
+          connectionStatus.textContent = '連接失敗 - 超時';
+          connectionStatus.className = 'status-bar status-disconnected';
+          loading.style.display = 'none';
+          showError('RTSP 伺服器連接超時，請確認伺服器運行中且 URL 正確');
+        }, 8000);
+        
+        // Set test URL with timestamp
+        const timestamp = new Date().getTime();
+        let testUrl = `/stream?url=${encodeURIComponent(rtspUrl)}&test=1&t=${timestamp}`;
+        
+        // Add transport protocol parameter if UDP is selected
+        if (useUdp.checked) {
+          testUrl += '&transport=udp';
+        }
+        
+        // Add force decode parameter if selected
+        if (forceDecode.checked) {
+          testUrl += '&forceDecode=1';
+        }
+        
+        testImg.src = testUrl;
+        
+        testImg.onload = function() {
+          clearTimeout(testTimeout);
+          connectionStatus.textContent = '連接成功！';
+          connectionStatus.className = 'status-bar status-connected';
+          loading.style.display = 'none';
+        };
+        
+        testImg.onerror = function() {
+          clearTimeout(testTimeout);
+          connectionStatus.textContent = '連接失敗';
+          connectionStatus.className = 'status-bar status-disconnected';
+          loading.style.display = 'none';
+          showError('無法連接到 RTSP 串流。請確認 URL 格式正確且伺服器可訪問。');
+        };
+      }
+      
+      // Start streaming
+      startBtn.addEventListener('click', function() {
+        const rtspUrl = rtspUrlInput.value.trim();
+        if (!rtspUrl) {
+          showError('請輸入 RTSP URL');
+          return;
+        }
+        
+        startStream(rtspUrl);
+      });
+      
+      // Function to start stream
+      function startStream(rtspUrl) {
+        currentRtspUrl = rtspUrl;
+        retryCount = 0;
+        
+        // Show loading indicator
+        loading.style.display = 'block';
+        errorMessage.style.display = 'none';
+        streamImg.style.display = 'none';
+        retryOverlay.style.display = 'none';
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'inline-block';
+        connectionStatus.textContent = '連接中...';
+        connectionStatus.className = 'status-bar';
+        
+        // Clear any existing timeout
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout);
+        }
+        
+        // Set timeout to detect early failures
+        loadingTimeout = setTimeout(() => {
+          if (streamImg.style.display === 'none') {
+            showError('串流載入超時，請檢查 RTSP URL 是否正確且可以連接');
+            connectionStatus.textContent = '連接失敗 - 超時';
+            connectionStatus.className = 'status-bar status-disconnected';
+            stopStream();
+          }
+        }, 15000);
+        
+        // Set the image source to our stream endpoint
+        streamImg.onload = function() {
+          clearTimeout(loadingTimeout);
+          loading.style.display = 'none';
+          streamImg.style.display = 'block';
+          connectionStatus.textContent = '已連接';
+          connectionStatus.className = 'status-bar status-connected';
+        };
+        
+        // Handle errors
+        streamImg.onerror = function() {
+          clearTimeout(loadingTimeout);
+          
+          if (retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.log(`串流連接失敗，正在重試 (${retryCount}/${MAX_RETRIES})...`);
+            connectionStatus.textContent = `連接失敗，嘗試重連 (${retryCount}/${MAX_RETRIES})`;
+            
+            // Wait a moment before retrying
+            setTimeout(() => {
+              if (currentRtspUrl) {
+                let streamUrl = `/stream?url=${encodeURIComponent(currentRtspUrl)}&retry=${retryCount}`;
+                
+                // Add transport protocol parameter if UDP is selected
+                if (useUdp.checked) {
+                  streamUrl += '&transport=udp';
+                }
+                
+                // Add force decode parameter if selected
+                if (forceDecode.checked) {
+                  streamUrl += '&forceDecode=1';
+                }
+                
+                streamImg.src = streamUrl;
+              }
+            }, 2000);
+          } else {
+            showError('載入串流失敗。請檢查 RTSP URL 是否正確且可以連接');
+            connectionStatus.textContent = '連接失敗';
+            connectionStatus.className = 'status-bar status-disconnected';
+            streamImg.style.display = 'none';
+            retryOverlay.style.display = 'flex';
+          }
+        };
+        
+        // Build stream URL with parameters
+        let streamUrl = `/stream?url=${encodeURIComponent(rtspUrl)}`;
+        
+        // Add transport protocol parameter if UDP is selected
+        if (useUdp.checked) {
+          streamUrl += '&transport=udp';
+        }
+        
+        // Add force decode parameter if selected
+        if (forceDecode.checked) {
+          streamUrl += '&forceDecode=1';
+        }
+        
+        // Start the stream
+        streamImg.src = streamUrl;
+      }
+      
+      // Stop streaming
+      stopBtn.addEventListener('click', function() {
+        stopStream();
+      });
+      
+      // Retry button
+      retryBtn.addEventListener('click', function() {
+        if (currentRtspUrl) {
+          retryCount = 0;
+          retryOverlay.style.display = 'none';
+          startStream(currentRtspUrl);
+        }
+      });
+      
+      // Helper function to stop the stream
+      function stopStream() {
+        streamImg.src = '';
+        streamImg.style.display = 'none';
+        loading.style.display = 'none';
+        retryOverlay.style.display = 'none';
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+        connectionStatus.textContent = '已停止';
+        connectionStatus.className = 'status-bar';
+        currentRtspUrl = '';
+        
+        if (loadingTimeout) {
+          clearTimeout(loadingTimeout);
+        }
+      }
+      
+      // Helper function to show error message
+      function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+        loading.style.display = 'none';
+      }
+      
+      // Try to restore URL from localStorage if available
+      const savedUrl = localStorage.getItem('rtspUrl');
+      if (savedUrl) {
+        rtspUrlInput.value = savedUrl;
+      }
+      
+      // Save URL to localStorage when entered
+      rtspUrlInput.addEventListener('change', function() {
+        localStorage.setItem('rtspUrl', rtspUrlInput.value.trim());
+      });
+    });
+  </script>
+</body>
+</html> 
